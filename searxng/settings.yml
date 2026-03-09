@@ -1,0 +1,67 @@
+# SearXNG settings — optimized for local AI stack
+# JSON format MUST be enabled for Open WebUI integration
+
+use_default_settings: true
+
+general:
+  instance_name: "Local AI Search"
+  privacypolicy_url: false
+  donation_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: "google"
+  default_lang: "en"
+  formats:
+    - html
+    - json    # CRITICAL: Required for API consumption by Open WebUI
+
+server:
+  secret_key: "change-this-to-a-random-string-locally"
+  limiter: false   # No rate limiting for local use
+  image_proxy: true
+  port: 8080
+  bind_address: "0.0.0.0"
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  results_on_new_tab: true
+
+engines:
+  # Prioritize high-quality engines
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: arxiv
+    engine: arxiv
+    shortcut: ar
+    disabled: false
+
+  - name: google scholar
+    engine: google_scholar
+    shortcut: gs
+    disabled: false

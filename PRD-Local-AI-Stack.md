@@ -5,9 +5,9 @@
 | Field | Value |
 |-------|-------|
 | Author | Ari / The Auspicious Company |
-| Version | 1.0 |
-| Date | February 21, 2026 |
-| Status | Proposed |
+| Version | 1.1 |
+| Date | March 9, 2026 |
+| Status | Active |
 | Target Hardware | Apple Silicon Mac (M1/M2/M3/M4), 8GB+ RAM (16GB+ recommended) |
 | Classification | Internal / Private |
 
@@ -31,9 +31,24 @@ A self-hosted AI assistant (Open WebUI) backed by locally-running language model
 
 - **Zero signups:** No accounts, API keys, or registration of any kind
 - **Zero cloud dependency:** All AI inference runs locally on Apple Silicon
-- **Privacy-first:** Queries, documents, and conversations never leave the local machine
+- **Privacy-first:** All AI inference, document processing, and conversation history run on your machine and are never transmitted to any cloud provider or AI service
 - **Open-source only:** MIT, Apache 2.0, or AGPL-licensed components
-- **Exception:** SearXNG proxies queries to public search engines (Google, Bing, etc.) for live web results. This is configurable and can be disabled for fully air-gapped operation.
+
+### 1.4 Privacy Guarantee — What This Protects (and What It Doesn't)
+
+This stack eliminates the primary privacy risk: **your data never reaches an AI company.**
+
+| What stays on your machine | What leaves your machine |
+|---------------------------|--------------------------|
+| All LLM conversations and responses | Web search queries (via SearXNG → Google/Bing/Brave) |
+| All uploaded documents and knowledge bases | Nothing else |
+| All embeddings and vector data | |
+| Conversation history | |
+| Model weights and inference | |
+
+**Web search is the one exception.** When you enable web search, SearXNG forwards your query to public search engines from your IP address. Search engines can log these requests. This is no different from using a browser directly — but unlike cloud AI, your query is not sent to OpenAI, Anthropic, or any AI provider.
+
+**To eliminate this:** Disable web search in Open WebUI (Admin → Settings → Web Search → off) for fully air-gapped operation. Document RAG and all AI chat remain fully local.
 
 ---
 
@@ -41,7 +56,9 @@ A self-hosted AI assistant (Open WebUI) backed by locally-running language model
 
 ### 2.1 Primary Persona
 
-**Ari** — Fractional CTO, multilingual (EN/EL/ES/DE/JP), running a MacBook Pro M2 with 8GB unified memory. Works with sensitive client strategy, business planning, and technical research. Needs an AI assistant that handles research synthesis, long-form writing, business document generation, and general Q&A without transmitting data to cloud providers.
+**Privacy-conscious knowledge worker on Apple Silicon.** Works with sensitive business information — client strategy, proprietary research, confidential documents — and needs AI assistance without transmitting that data to cloud services. Uses an Apple Silicon Mac (8GB–16GB RAM is the target range; 32GB+ unlocks heavier models). Multilingual workflows are common.
+
+*Reference configuration:* MacBook Pro M2 8GB, multilingual (EN/EL/ES/DE/JP), fractional CTO work involving client strategy, business planning, and technical research. The 8GB constraint is the design floor — everything in this stack is validated against that hardware first.
 
 ### 2.2 Priority-Ranked Jobs to Be Done
 
@@ -66,13 +83,14 @@ The stack is organized into four layers. Each layer can be independently upgrade
 | Layer | Component | Role | Port |
 |-------|-----------|------|------|
 | Interface | Open WebUI | AI assistant: chat, RAG, web search, docs | localhost:3000 |
-| Search | SearXNG + Redis | Privacy-first web search proxy (247+ engines) | (internal) |
+| Search | SearXNG + Redis | Multi-engine web search proxy (247+ engines) | (internal) |
 | Search | ChromaDB (built into Open WebUI) | Vector database for local document RAG | (internal) |
-| Inference | Ollama (recommended) | Local LLM runtime with Metal GPU acceleration | localhost:11434 |
-| Inference | mistral.rs (optional) | High-performance Rust inference engine | localhost:8000 |
-| Models | Qwen3-8B (Q4) | Primary workhorse model (~5GB RAM, tight on 8GB Macs) | (loaded by runtime) |
-| Models | Mistral Small 3.1 24B (Q4) | Heavy-duty model for complex tasks (~14GB RAM, requires 16GB+) | (loaded by runtime) |
-| Models | nomic-embed-text | Embedding model for RAG pipeline (~300MB) | (loaded by runtime) |
+| Inference | **Ollama** | Local LLM runtime with Metal GPU acceleration | localhost:11434 |
+| Models | Qwen3-8B (Q4) | Primary workhorse model (~5GB RAM, tight on 8GB Macs) | (loaded by Ollama) |
+| Models | Mistral Small 3.1 24B (Q4) | Heavy-duty model for complex tasks (~14GB RAM, requires 16GB+) | (loaded by Ollama) |
+| Models | nomic-embed-text | Embedding model for RAG pipeline (~300MB) | (loaded by Ollama) |
+
+> **Note:** mistral.rs is an optional high-performance alternative to Ollama for the inference layer. It is not part of the default stack. See [Appendix A: Advanced — mistral.rs](#appendix-a-advanced--mistralrs) if you want to evaluate it after the default stack is working.
 
 ### 3.2 Data Flow
 
@@ -81,7 +99,7 @@ All communication occurs on localhost. The only external network calls are from 
 1. **User → Open WebUI (localhost:3000):** Chat, upload documents, query knowledge bases, request web-augmented answers
 2. **Open WebUI → SearXNG (internal):** Multi-engine web search (Google, Bing, Brave, arXiv, Scholar), results injected into LLM context
 3. **Open WebUI → ChromaDB (internal):** Semantic search over uploaded private documents
-4. **Open WebUI → Ollama/mistral.rs:** LLM inference via OpenAI-compatible API
+4. **Open WebUI → Ollama (localhost:11434):** LLM inference via OpenAI-compatible API
 
 ### 3.3 Key Architectural Decisions
 
@@ -134,22 +152,21 @@ Open WebUI provides chat, web search, document RAG, and knowledge bases in one i
 
 SearXNG runs as internal Docker infrastructure with no exposed port. Open WebUI connects to it via the Docker network. JSON output format must be enabled in `searxng/settings.yml` — the provided configuration includes this.
 
-### 4.3 Inference Runtime — Ollama vs. mistral.rs
+### 4.3 Inference Runtime — Ollama
 
-Both runtimes expose an OpenAI-compatible HTTP API, making them interchangeable. The recommendation is to start with Ollama and optionally evaluate mistral.rs for performance-critical workloads.
+| Attribute | Detail |
+|-----------|--------|
+| Repository | [github.com/ollama/ollama](https://github.com/ollama/ollama) (130k+ stars) |
+| License | MIT |
+| Purpose | Local LLM runtime with native Metal GPU acceleration on Apple Silicon |
+| Install | `brew install ollama` |
+| Resource Usage | Minimal overhead; model RAM dominates |
 
-| Dimension | Ollama (Recommended) | mistral.rs (Optional) |
-|-----------|---------------------|----------------------|
-| Setup time | 5 minutes (`brew install`) | 15–30 minutes (Rust build or install script) |
-| Model management | `ollama pull model` (one command) | Manual HuggingFace download or auto-fetch |
-| Apple Silicon | Metal GPU via native macOS app | Metal via feature flag (`--features metal`) |
-| UI integration | Native connector in Open WebUI | OpenAI-compat API only (generic connector) |
-| Performance | Good (Go-based runtime) | Better (Rust + PagedAttention + FlashAttention) |
-| Quantization | Predefined quant levels per model | Fine-grained control, custom UQFF format |
-| Community | Massive (130k+ GitHub stars) | Growing (6.3k stars) |
-| Auto-tuning | No | Yes (`mistralrs tune` benchmarks your hardware) |
-| MCP support | No | Yes (built-in MCP client and server) |
-| **Recommendation** | **Start here.** Ecosystem convenience wins for initial deployment. | **Evaluate later.** Swap in if speed difference matters for your workload. |
+Ollama is the inference foundation of this stack. It runs as a native macOS process (not in Docker) to access the Metal GPU directly — Docker containers cannot pass through GPU access on macOS. Open WebUI has a first-class native Ollama connector, and the model library covers every model used here with a single `ollama pull` command.
+
+**Why not Docker for Ollama:** Docker Desktop on Mac routes containers through a Linux VM. GPU passthrough is not available, meaning inference would fall back to CPU — 10x slower. Native macOS is the only viable path for Metal acceleration.
+
+For users who want to evaluate a higher-performance alternative after the default stack is working, see [Appendix A: Advanced — mistral.rs](#appendix-a-advanced--mistralrs).
 
 ---
 
@@ -277,26 +294,9 @@ The script handles: prerequisite checks → Ollama install → model pulls → S
 
 **Outcome:** Private knowledge assistant combining local documents with live web results.
 
-**Phase 3: Performance Optimization (Optional, 30 minutes)**
+**Phase 3: Performance Optimization (Optional)**
 
-Only pursue this if inference speed with Ollama is insufficient for your workload. mistral.rs is a drop-in replacement for the inference layer — no changes to the rest of the stack.
-
-```bash
-# Install mistral.rs
-curl --proto '=https' --tlsv1.2 -sSf \
-  https://raw.githubusercontent.com/EricLBuehler/mistral.rs/master/install.sh | sh
-
-# Auto-tune for your hardware
-mistralrs tune -m Qwen/Qwen3-8B --emit-config config.toml
-
-# Start server
-mistralrs serve --ui -m Qwen/Qwen3-8B --port 8000
-
-# Add to Open WebUI: Admin → Connections → OpenAI-compat
-# URL: http://localhost:8000/v1
-```
-
-*Verification:* Compare tokens/second between Ollama and mistral.rs on the same prompt. If mistral.rs is noticeably faster, keep it; otherwise, Ollama's ecosystem convenience wins.
+Only relevant if Ollama's inference speed is a bottleneck for your workload. See [Appendix A](#appendix-a-advanced--mistralrs) for mistral.rs setup — it is a drop-in replacement for the inference layer with no changes required to the rest of the stack.
 
 ---
 
@@ -333,7 +333,6 @@ mistralrs serve --ui -m Qwen/Qwen3-8B --port 8000
 | SearXNG blocked by search engines | Low | Medium | Enable multiple engines; personal instance has low request volume |
 | Docker resource contention on 8GB Mac | Medium | High | Run only 8B model; close memory-heavy apps; keep Docker memory allocation at default |
 | Open WebUI breaking updates | Low | Low | Pin Docker image versions in production; test before upgrading |
-| mistral.rs build failures on macOS | Low | Medium | Ollama is the primary path; mistral.rs is optional enhancement |
 | Ollama model availability | Low | Low | HuggingFace GGUF models can be loaded directly via Ollama Modelfile |
 
 ---
@@ -367,10 +366,44 @@ mistralrs serve --ui -m Qwen/Qwen3-8B --port 8000
 
 This PRD is accompanied by the following deployment files:
 
-- **docker-compose.yml:** Docker Compose configuration (Open WebUI + SearXNG + Redis)
-- **searxng/settings.yml:** SearXNG configuration with JSON format enabled
-- **setup.sh:** One-command setup script
-- **local-ai-stack.jsx:** Interactive architecture diagram (React component)
+| File | Purpose | Runtime? |
+|------|---------|----------|
+| `docker-compose.yml` | Orchestrates Open WebUI, SearXNG, and Redis containers | Yes |
+| `searxng/settings.yml` | SearXNG configuration (JSON format enabled, search engines) | Yes |
+| `setup.sh` | One-command bootstrap script | Yes (run once) |
+| `local-ai-stack.jsx` | Interactive architecture diagram — React component for visualization and documentation. **Not part of the running stack.** Open in any React sandbox (e.g. StackBlitz) to explore the architecture interactively. | No |
+
+### Appendix A: Advanced — mistral.rs
+
+mistral.rs is a Rust-based LLM inference engine that can serve as a drop-in replacement for Ollama. It exposes the same OpenAI-compatible API, so no other part of the stack changes. Consider it only if Ollama's inference speed is insufficient for your workload.
+
+| Dimension | Ollama | mistral.rs |
+|-----------|--------|------------|
+| Setup | `brew install ollama` (5 min) | Install script or Rust build (15–30 min) |
+| Model management | `ollama pull model` | HuggingFace download or auto-fetch |
+| Open WebUI integration | Native connector | Generic OpenAI-compat |
+| Performance | Good | Better (Rust + PagedAttention + FlashAttention) |
+| Auto-tuning | No | Yes (`mistralrs tune`) |
+| Community | 130k+ stars | 6.3k+ stars |
+
+```bash
+# Install
+curl --proto '=https' --tlsv1.2 -sSf \
+  https://raw.githubusercontent.com/EricLBuehler/mistral.rs/master/install.sh | sh
+
+# Auto-tune for your hardware
+mistralrs tune -m Qwen/Qwen3-8B --emit-config config.toml
+
+# Start server (OpenAI-compatible API on port 8000)
+mistralrs serve -m Qwen/Qwen3-8B --port 8000
+
+# Connect to Open WebUI: Admin → Connections → add OpenAI-compat
+# URL: http://localhost:8000/v1
+```
+
+**Decision rule:** Run both. If mistral.rs tokens/second is meaningfully faster on your workload, keep it. If the difference is marginal, Ollama's ecosystem convenience wins — every tutorial, every model, one command away.
+
+---
 
 ### 10.3 Maintenance Commands
 
